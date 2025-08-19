@@ -1,0 +1,22 @@
+# Screen setup | Tiles
+W, H = 1280, 720
+TILE = 24
+COLS, ROWS = W // TILE, H // TILE
+FPS = 60
+
+# FOV
+FOV_RADIUS = 9
+
+# Colors
+COLOR_WALL = (30, 30, 45)
+COLOR_FLOOR = (14, 16, 20)
+COLOR_FOV_ENLIT = (200, 220, 255)
+COLOR_PLAYER = (240, 230, 120)
+COLOR_ENEMY = (220, 80, 80)
+COLOR_MEMO = (55, 62, 75)
+
+# Seed by default
+DEFAULT_SEED = "EONITE42"
+
+# HUD
+UI_FONT = "Consolas"
