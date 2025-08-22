@@ -9,7 +9,8 @@ from core.events import LOG
 
 # World
 from world.dungeon import make_map
-from world.fov import compute_fov
+from world.pathfinding import Pathfinder
+from world.fov import compute_fov, can_see
 from world.tileset import WALL, FLOOR
 
 # UI
@@ -68,27 +69,62 @@ def try_player_move(player: Actor, dx: int, dy: int, grid, enemies, ts: TurnSyst
     return True
 
 
-def enemies_turn(player: Actor, enemies, grid, ts: TurnSystem):
+def enemies_turn(player: Actor, enemies, grid, ts: TurnSystem, pathfinder: Pathfinder):
+    from core.settings import AGGRO_RADIUS, MAX_ENEMY_STEPS
     for e in list(enemies):
         if not e.alive:
             enemies.remove(e)
             continue
+
+        # якщо бачить гравця — «агриться» і запам'ятовує позицію
+        if can_see(grid, e.x, e.y, player.x, player.y, radius=AGGRO_RADIUS):
+            e.aggro = True
+            e.last_known_player = (player.x, player.y)
+
+        # якщо поруч — атака
         if e.distance2(player) == 1:
+            from game.combat import attack
             killed = attack(e, player)
             if killed:
+                from core.events import LOG
                 LOG.add("Ти загинув. Натисни Esc, щоб вийти.")
             continue
-        dx = 1 if player.x > e.x else -1 if player.x < e.x else 0
-        dy = 1 if player.y > e.y else -1 if player.y < e.y else 0
-        opts = []
-        if dx: opts.append((e.x + dx, e.y))
-        if dy: opts.append((e.x, e.y + dy))
-        for nx, ny in opts:
-            if passable(grid, nx, ny) and not blocked_by_enemy(enemies, nx, ny) and (nx, ny) != (player.x, player.y):
-                e.x, e.y = nx, ny
-                break
-    ts.end_enemies()
 
+        # якщо агрований і знає останню позицію — крок за A*
+        moved = False
+        if e.aggro and e.last_known_player:
+            tx, ty = e.last_known_player
+            for _ in range(MAX_ENEMY_STEPS):
+                nx, ny = pathfinder.next_step(e.x, e.y, tx, ty)
+                # якщо шлях не рухає — стоп
+                if (nx, ny) == (e.x, e.y):
+                    break
+                # не наступати на інших ворогів/гравця
+                if (nx, ny) == (player.x, player.y):
+                    break
+                if any( (o is not e) and o.alive and (o.x, o.y)==(nx, ny) for o in enemies ):
+                    break
+                e.x, e.y = nx, ny
+                moved = True
+                # якщо дійшли до точки — скинемо пам'ять
+                if (e.x, e.y) == (tx, ty):
+                    e.last_known_player = None
+                    break
+
+        # якщо не рухався і не бачить — легкий «тупцювання» або стоїть
+        if not moved and not e.aggro:
+            # маленький шанс посунутися вбік, якщо клітинка прохідна
+            import random
+            for _ in range(2):
+                dx, dy = random.choice([(1,0),(-1,0),(0,1),(0,-1)])
+                nx, ny = e.x+dx, e.y+dy
+                if 0 <= nx < COLS and 0 <= ny < ROWS and grid[ny][nx] == FLOOR:
+                    # не ліземо в інших
+                    if (nx, ny) != (player.x, player.y) and not any((o is not e) and (o.x,o.y)==(nx,ny) for o in enemies):
+                        e.x, e.y = nx, ny
+                        break
+
+    ts.end_enemies()
 
 def main(seed: str | None = DEFAULT_SEED):
     pg.init()
@@ -106,6 +142,7 @@ def main(seed: str | None = DEFAULT_SEED):
 
     grid, (sx, sy), _, rooms = make_map(COLS, ROWS, rng)
     ground_items = spawn_items(rooms, rng, pool=["medkit","bomb","flare"], per_room_chance=0.7)
+    pathfinder = Pathfinder(grid)
 
     player = Actor(sx, sy, name="Ти", hp=12, atk=4, df=1)
     enemies = spawn_enemies(grid, rooms, rng, count=4)
@@ -192,7 +229,7 @@ def main(seed: str | None = DEFAULT_SEED):
                             mode = "game"
 
         if not ts.player_turn:
-            enemies_turn(player, enemies, grid, ts)
+            enemies_turn(player, enemies, grid, ts, pathfinder)
 
         fov = compute_fov(grid, player.x, player.y, FOV_RADIUS)
         for y in range(ROWS):

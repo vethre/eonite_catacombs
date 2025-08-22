@@ -12,6 +12,9 @@ class Actor:
         self.atk = atk
         self.df = df
         self.inv = Inventory()
+        # AI:
+        self.aggro = False
+        self.last_known_player: tuple[int, int] | None = None
 
     @property
     def pos(self) -> tuple[int, int]:
