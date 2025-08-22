@@ -1,5 +1,6 @@
+import json
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from game.actor import Actor
 
 def spawn_enemies(grid, rooms, rng: random.Random, *, count: int = 4):
@@ -26,3 +27,25 @@ def spawn_items(rooms, rng: random.Random, pool: list[str], *, per_room_chance: 
             if (x,y) not in drops:
                 drops[(x,y)] = rng.choice(pool)
     return drops
+
+def spawn_terminals(rooms, rng: random.Random, lore_path: str, count: int = 2) -> Dict[Tuple[int,int], str]:
+    with open(lore_path, "r", encoding="utf-8") as f:
+        lore = json.load(f)
+    pool = [e["text"] for e in lore]
+    rng.shuffle(pool)
+
+    spots: Dict[Tuple[int,int], str] = {}
+    use_rooms = rooms[1:].copy()
+    rng.shuffle(use_rooms)
+    for r in use_rooms[:count]:
+        x, y = int(r.centerx), int(r.centery)
+        if pool:
+            spots[(x,y)] = pool.pop()
+    return spots
+
+def pick_stairs_room(rooms, rng: random.Random) -> Tuple[int,int]:
+    if len(rooms) >= 2:
+        r = rooms[-1]
+        return int(r.centerx), int(r.centery)
+    r = rooms[0]
+    return int(r.centerx), int(r.centery)
