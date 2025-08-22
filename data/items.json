@@ -1,0 +1,24 @@
+[
+  {
+    "id": "medkit",
+    "name": "Медпакет",
+    "kind": "consumable",
+    "effect": "heal",
+    "value": 6
+  },
+  {
+    "id": "bomb",
+    "name": "Бомба",
+    "kind": "consumable",
+    "effect": "bomb",
+    "damage": 6,
+    "radius": 2
+  },
+  {
+    "id": "flare",
+    "name": "Світляк",
+    "kind": "consumable",
+    "effect": "flare",
+    "radius": 6
+  }
+]

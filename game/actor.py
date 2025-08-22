@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from game.inventory import Inventory
+
 class Actor:
     # XY | Name | HP | ATK | DF
     def __init__(self, x: int, y: int, *, name: str, hp: int, atk: int, df: int):
@@ -9,6 +11,7 @@ class Actor:
         self.hp = hp
         self.atk = atk
         self.df = df
+        self.inv = Inventory()
 
     @property
     def pos(self) -> tuple[int, int]:
