@@ -15,6 +15,7 @@ from world.tileset import WALL, FLOOR
 
 # UI
 from ui.hud import draw_hud
+from ui.screens import draw_dead, draw_win
 
 # Game
 from game.actor import Actor
@@ -134,7 +135,7 @@ def main(seed: str | None = DEFAULT_SEED):
 
     # стани
     state = GameState()               # зараз майже не юзаємо, але хай живе
-    mode = "game"                     # або "inventory"
+    mode = "game"                     # або "inventory" | "dead" | "win"
     selected_index = 0
 
     # контент
@@ -229,10 +230,14 @@ def main(seed: str | None = DEFAULT_SEED):
                             collected_lore.append(text)
                             ts.end_player()
                         elif pos == stairs:
-                            level += 1
-                            LOG.add(f"Ти спускаєшся на рівень {level}…")
-                            build_level()
-                            ts.end_player()
+                            if level + 1 >= WIN_LEVEL:
+                                mode = "win"
+                                LOG.add("Ти знайшов вихід з катакомб...")
+                            else:
+                                level += 1
+                                LOG.add(f"Ти спускаєшся на рівень {level}…")
+                                build_level()
+                                ts.end_player()
                         else:
                             LOG.add("Нема з чим взаємодіяти.")
 
@@ -280,9 +285,28 @@ def main(seed: str | None = DEFAULT_SEED):
                         ts.end_player()
                         mode = "game"
 
+                elif mode in ("dead", "win"):
+                    if ev.key == pg.K_ESCAPE:
+                        running = False
+                    elif ev.key == pg.K_r:
+                            # м'який рестарт забігу
+                        level = 1
+                        collected_lore.clear()
+                            # відновлюємо гравця (HP повний, інв чистий)
+                        player.hp = player.max_hp
+                        if hasattr(player, "inv"):
+                                # якщо твій Inventory — dict-модель
+                            player.inv.items.clear()
+                        build_level()
+                        ts = TurnSystem()
+                        mode = "game"
+                    continue  # не провалюйся в інші гілки
+
         # Хід ворогів після твого
         if not ts.player_turn:
             enemies_turn(player, enemies, grid, ts, pathfinder)
+            if player.hp <= 0 and mode == "game":
+                mode = "dead"
 
         # FOV + "seen"
         fov = compute_fov(grid, player.x, player.y, FOV_RADIUS)
@@ -342,6 +366,11 @@ def main(seed: str | None = DEFAULT_SEED):
                     y += 28
             screen.blit(font.render("↑↓ вибір, Enter — використати, Esc/I — назад",
                                     True, (160, 160, 160)), (40, y+40))
+            
+        elif mode == "dead":
+            draw_dead(screen)
+        elif mode == "win":
+            draw_win(screen)
 
         pg.display.flip()
 
