@@ -69,63 +69,92 @@ def try_player_move(player: Actor, dx: int, dy: int, grid, enemies, ts: TurnSyst
     ts.end_player()
     return True
 
-
 def enemies_turn(player: Actor, enemies, grid, ts: TurnSystem, pathfinder: Pathfinder):
-    from core.settings import AGGRO_RADIUS, MAX_ENEMY_STEPS
+    from core.settings import AGGRO_RADIUS
+    from game.combat import attack
+    from core.events import LOG
+
     for e in list(enemies):
         if not e.alive:
             enemies.remove(e)
             continue
 
-        # якщо бачить гравця — «агриться» і запам'ятовує позицію
+        # тики статусів (отрута тощо)
+        if e.tick_statuses(log_prefix=""):
+            enemies.remove(e)
+            LOG.add(f"{e.name} помирає від статусу.")
+            continue
+
+        # агро по лінії зору
         if can_see(grid, e.x, e.y, player.x, player.y, radius=AGGRO_RADIUS):
             e.aggro = True
             e.last_known_player = (player.x, player.y)
 
         # якщо поруч — атака
         if e.distance2(player) == 1:
-            from game.combat import attack
             killed = attack(e, player)
             if killed:
-                from core.events import LOG
                 LOG.add("Ти загинув. Натисни Esc, щоб вийти.")
+            # стрільцям охолоджуємо КД, навіть якщо били в мілі
+            e.cool_shoot()
             continue
 
-        # якщо агрований і знає останню позицію — крок за A*
-        moved = False
+        # хід пропускає «танк» (кожен move_cooldown кадр)
+        if e.move_cooldown > 0 and not e.ready_to_move():
+            e.cool_shoot()
+            continue
+
+        steps_to_do = max(1, e.speed_steps)  # runner робить 2 кроки
+        moved_any = False
+
+        # стрілець: якщо бачить і в межах дальності — стріляє (КД)
+        if e.ranged and e.aggro and e.last_known_player:
+            from world.fov import can_see as los
+            dist = abs(player.x - e.x) + abs(player.y - e.y)
+            if dist <= max(1, e.range) and los(grid, e.x, e.y, player.x, player.y, radius=e.range):
+                if e.ready_to_shoot():
+                    # постріл: миттєвий урон
+                    killed = player.take_damage(max(1, e.atk - player.df))
+                    LOG.add(f"{e.name} стріляє у тебе! [{player.hp}/{player.max_hp}]")
+                    if killed:
+                        LOG.add("Ти загинув. Натисни Esc, щоб вийти.")
+                    moved_any = True
+                    # після пострілу — не рухається цього разу
+                    continue
+            else:
+                # якщо не бачить/далеко — кулдаун трошки спадає
+                e.cool_shoot()
+
+        # звичайний рух за A* до last_known_player
         if e.aggro and e.last_known_player:
             tx, ty = e.last_known_player
-            for _ in range(MAX_ENEMY_STEPS):
+            for _ in range(steps_to_do):
                 nx, ny = pathfinder.next_step(e.x, e.y, tx, ty)
-                # якщо шлях не рухає — стоп
                 if (nx, ny) == (e.x, e.y):
                     break
-                # не наступати на інших ворогів/гравця
                 if (nx, ny) == (player.x, player.y):
                     break
-                if any( (o is not e) and o.alive and (o.x, o.y)==(nx, ny) for o in enemies ):
+                if any((o is not e) and o.alive and (o.x, o.y) == (nx, ny) for o in enemies):
                     break
                 e.x, e.y = nx, ny
-                moved = True
-                # якщо дійшли до точки — скинемо пам'ять
+                moved_any = True
                 if (e.x, e.y) == (tx, ty):
                     e.last_known_player = None
                     break
 
-        # якщо не рухався і не бачить — легкий «тупцювання» або стоїть
-        if not moved and not e.aggro:
-            # маленький шанс посунутися вбік, якщо клітинка прохідна
+        # якщо не агро — дрібне тупцювання (як у тебе було)
+        if not moved_any and not e.aggro:
             import random
             for _ in range(2):
                 dx, dy = random.choice([(1,0),(-1,0),(0,1),(0,-1)])
-                nx, ny = e.x+dx, e.y+dy
-                if 0 <= nx < COLS and 0 <= ny < ROWS and grid[ny][nx] == FLOOR:
-                    # не ліземо в інших
-                    if (nx, ny) != (player.x, player.y) and not any((o is not e) and (o.x,o.y)==(nx,ny) for o in enemies):
-                        e.x, e.y = nx, ny
-                        break
+                nx, ny = e.x + dx, e.y + dy
+                if passable(grid, nx, ny) and (nx, ny) != (player.x, player.y) \
+                   and not any((o is not e) and (o.x, o.y) == (nx, ny) for o in enemies):
+                    e.x, e.y = nx, ny
+                    break
 
     ts.end_enemies()
+
 # --------------------------------------------------------------------------------------
 def main(seed: str | None = DEFAULT_SEED):
     pg.init()
@@ -169,7 +198,7 @@ def main(seed: str | None = DEFAULT_SEED):
         else:
             player.x, player.y = sx, sy   # переносимо координати, стати зберігаємо
 
-        enemies = spawn_enemies(grid, rooms, rng, count=4 + level // 2)
+        enemies = spawn_enemies(grid, rooms, rng, count=4 + level, level=level)
         ground_items = spawn_items(rooms, rng, pool=["medkit", "bomb", "flare"], per_room_chance=0.6)
         terminals = spawn_terminals(rooms, rng, "data/lore.json", count=1 + level // 2)
         stairs = pick_stairs_room(rooms, rng)
